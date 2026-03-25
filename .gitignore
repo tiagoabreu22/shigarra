@@ -1,0 +1,13 @@
+# binary
+shigarra
+
+# Go
+*.test
+*.out
+/vendor/
+
+# macOS
+.DS_Store
+
+# session (contains credentials)
+~/.config/shigarra/
