@@ -394,6 +394,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.doLogout()
 			}
 		case "?":
+			if a.screen == screenLogin && a.login.focused != fieldFaculty {
+				break
+			}
+			if a.screen == screenSavePassword {
+				break
+			}
 			a.showHelp = !a.showHelp
 			return a, nil
 		case "a":
@@ -564,6 +570,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) View() string {
+	content := a.viewContent()
+	if a.width > 0 && a.height > 0 {
+		return lipgloss.NewStyle().
+			Width(a.width).
+			Height(a.height).
+			Background(cBg).
+			Render(content)
+	}
+	return content
+}
+
+func (a App) viewContent() string {
 	if a.showAbout {
 		return a.aboutOverlay()
 	}
