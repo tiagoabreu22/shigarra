@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -12,6 +13,7 @@ import (
 	"github.com/tiagoabreu22/shigarra/internal/api"
 	"github.com/tiagoabreu22/shigarra/internal/auth"
 	"github.com/tiagoabreu22/shigarra/internal/config"
+	"github.com/tiagoabreu22/shigarra/internal/updater"
 )
 
 // ── Key bindings ─────────────────────────────────────────────────────────────
@@ -49,44 +51,54 @@ var (
 		key.WithKeys("q", "ctrl+c"),
 		key.WithHelp("q", "quit"),
 	)
+	keyAbout = key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "about"),
+	)
 )
+
+type updateCheckResultMsg struct {
+	result updater.Result
+	err    error
+}
+
 
 type schedKeyMap struct{}
 
 func (k schedKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyLeft, keyTab, keyRefresh, keyLogout, keyHelp, keyQuit}
+	return []key.Binding{keyLeft, keyTab, keyRefresh, keyLogout, keyAbout, keyHelp, keyQuit}
 }
 func (k schedKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{keyLeft, keyRight},
 		{keyTab, keyRefresh, keyLogout},
-		{keyHelp, keyQuit},
+		{keyAbout, keyHelp, keyQuit},
 	}
 }
 
 type examsKeyMap struct{}
 
 func (k examsKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyUp, keyTab, keyRefresh, keyLogout, keyHelp, keyQuit}
+	return []key.Binding{keyUp, keyTab, keyRefresh, keyLogout, keyAbout, keyHelp, keyQuit}
 }
 func (k examsKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{keyUp, keyDown},
 		{keyTab, keyRefresh, keyLogout},
-		{keyHelp, keyQuit},
+		{keyAbout, keyHelp, keyQuit},
 	}
 }
 
 type weekKeyMap struct{}
 
 func (k weekKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyLeft, keyTab, keyRefresh, keyLogout, keyHelp, keyQuit}
+	return []key.Binding{keyLeft, keyTab, keyRefresh, keyLogout, keyAbout, keyHelp, keyQuit}
 }
 func (k weekKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{keyLeft, keyRight},
 		{keyTab, keyRefresh, keyLogout},
-		{keyHelp, keyQuit},
+		{keyAbout, keyHelp, keyQuit},
 	}
 }
 
@@ -116,18 +128,27 @@ type App struct {
 	sessionManager *auth.SessionManager
 	help           help.Model
 	showHelp       bool
+	about          aboutModel
+	showAbout      bool
+	prefs          config.Prefs
+	updateAvail    string
 	width          int
 	height         int
 
-	// Pending password held between loginSuccessMsg and savePasswordDecisionMsg
 	pendingPassword string
 }
 
 const navSidebarW = 16
 
-// NewApp creates the root application model, restoring a saved session if available
-func NewApp() App {
+func NewApp(version, installMethod string) App {
 	h := help.New()
+
+	prefs, err := config.LoadPrefs()
+	if err != nil || prefs == nil {
+		p := config.DefaultPrefs()
+		prefs = &p
+	}
+
 	app := App{
 		screen:    screenLogin,
 		authSetup: newAuthSetupModel(),
@@ -135,6 +156,8 @@ func NewApp() App {
 		schedule:  newScheduleModel(nil, ""),
 		exams:     newExamsModel(nil, ""),
 		help:      h,
+		prefs:     *prefs,
+		about:     newAboutModel(version, installMethod, *prefs),
 	}
 
 	sess, err := config.Load()
@@ -217,23 +240,37 @@ func (a *App) tryRestoreLoggedInScreen() {
 	a.exams = newExamsModel(client, sess.Username)
 }
 
-func Run() error {
-	p := tea.NewProgram(NewApp(), tea.WithAltScreen())
+func Run(version, installMethod string) error {
+	p := tea.NewProgram(NewApp(version, installMethod), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
 
 func (a App) Init() tea.Cmd {
+	var cmds []tea.Cmd
 	switch a.screen {
 	case screenAuthSetup:
-		return a.authSetup.Init()
+		cmds = append(cmds, a.authSetup.Init())
 	case screenLogin:
-		return a.login.Init()
+		cmds = append(cmds, a.login.Init())
 	case screenSchedule, screenWeek:
-		return tea.Batch(a.schedule.Init(), a.exams.Init())
+		cmds = append(cmds, tea.Batch(a.schedule.Init(), a.exams.Init()))
 	}
-	return nil
+	if a.prefs.CheckUpdates {
+		cmds = append(cmds, checkUpdateCmd(a.about.version))
+	}
+	return tea.Batch(cmds...)
 }
+
+func checkUpdateCmd(version string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, err := updater.CheckLatest(ctx, version)
+		return updateCheckResultMsg{result: result, err: err}
+	}
+}
+
 
 func (a *App) cancelOutstanding() {
 	a.login.Cancel()
@@ -307,6 +344,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			a.cancelOutstanding()
 			return a, tea.Quit
+		}
+
+		if a.showAbout {
+			switch msg.String() {
+			case "a", "esc":
+				a.showAbout = false
+			default:
+				var cmd tea.Cmd
+				a.about, cmd = a.about.Update(msg)
+				if a.about.prefs != a.prefs {
+					a.prefs = a.about.prefs
+					_ = config.SavePrefs(&a.prefs)
+				}
+				return a, cmd
+			}
+			return a, nil
+		}
+
+		switch msg.String() {
 		case "q":
 			if a.screen == screenLogin && a.login.focused == fieldFaculty {
 				a.cancelOutstanding()
@@ -340,6 +396,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			a.showHelp = !a.showHelp
 			return a, nil
+		case "a":
+			if a.screen != screenLogin && a.screen != screenAuthSetup && a.screen != screenSavePassword {
+				a.showAbout = true
+				return a, nil
+			}
 		}
 
 	case authSetupCompleteMsg:
@@ -471,6 +532,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.exams, cmd = a.exams.Update(msg)
 		return a, cmd
 
+	case updateCheckResultMsg:
+		if msg.err == nil && msg.result.UpdateAvailable {
+			a.updateAvail = msg.result.LatestVersion
+			a.about.latestVersion = msg.result.LatestVersion
+			a.about.updateState = updateStateAvailable
+		} else if msg.err == nil {
+			a.about.updateState = updateStateUpToDate
+		} else {
+			a.about.updateState = updateStateError
+			a.about.errMsg = msg.err.Error()
+		}
+		return a, nil
+
 	}
 
 	var cmd tea.Cmd
@@ -490,6 +564,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) View() string {
+	if a.showAbout {
+		return a.aboutOverlay()
+	}
 	if a.showHelp {
 		return a.helpOverlay()
 	}
@@ -601,6 +678,16 @@ func (a App) headerView() string {
 		username = lipgloss.NewStyle().Foreground(cFgDim).Render(a.session.Username)
 	}
 
+	badge := ""
+	if a.updateAvail != "" {
+		badge = lipgloss.NewStyle().
+			Background(cYellow).
+			Foreground(cBadgeFg).
+			Bold(true).
+			Padding(0, 1).
+			Render("v" + a.updateAvail + " available")
+	}
+
 	tabs := ""
 	if !a.useSidebar(a.width, a.height) {
 		tabs = a.headerTabsView()
@@ -609,6 +696,7 @@ func (a App) headerView() string {
 	logoW := lipgloss.Width(logo)
 	tabsW := lipgloss.Width(tabs)
 	userW := lipgloss.Width(username)
+	badgeW := lipgloss.Width(badge)
 
 	var row string
 	if a.width > 0 && tabsW > 0 {
@@ -617,17 +705,29 @@ func (a App) headerView() string {
 		if leftPad < 1 {
 			leftPad = 1
 		}
-		rightPad := a.width - 2 - tabsStart - tabsW - userW
+		right := username
+		rightW := userW
+		if badgeW > 0 && a.width-2-tabsStart-tabsW-userW-badgeW-1 > 0 {
+			right = badge + " " + username
+			rightW = badgeW + 1 + userW
+		}
+		rightPad := a.width - 2 - tabsStart - tabsW - rightW
 		if rightPad < 1 {
 			rightPad = 1
 		}
-		row = "  " + logo + strings.Repeat(" ", leftPad) + tabs + strings.Repeat(" ", rightPad) + username + "  "
+		row = "  " + logo + strings.Repeat(" ", leftPad) + tabs + strings.Repeat(" ", rightPad) + right + "  "
 	} else {
-		gap := a.width - logoW - userW - 4
+		right := username
+		rightW := userW
+		if badgeW > 0 && a.width-logoW-userW-badgeW-5 > 0 {
+			right = badge + " " + username
+			rightW = badgeW + 1 + userW
+		}
+		gap := a.width - logoW - rightW - 4
 		if gap < 1 {
 			gap = 1
 		}
-		row = "  " + logo + strings.Repeat(" ", gap) + username + "  "
+		row = "  " + logo + strings.Repeat(" ", gap) + right + "  "
 	}
 
 	divider := lipgloss.NewStyle().Foreground(cBorder).Render(strings.Repeat("─", a.width))
@@ -700,5 +800,10 @@ func (a App) helpOverlay() string {
 				"\n\n" + content,
 		)
 
+	return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, box)
+}
+
+func (a App) aboutOverlay() string {
+	box := a.about.View()
 	return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, box)
 }
