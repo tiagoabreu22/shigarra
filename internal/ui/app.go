@@ -308,7 +308,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.cancelOutstanding()
 			return a, tea.Quit
 		case "q":
+			if a.screen == screenLogin && a.login.focused == fieldFaculty {
+				a.cancelOutstanding()
+				return a, tea.Quit
+			}
 			if a.screen != screenLogin && a.screen != screenAuthSetup && a.screen != screenSavePassword {
+				a.cancelOutstanding()
+				return a, tea.Quit
+			}
+		case "esc":
+			if a.screen == screenLogin && a.login.focused == fieldFaculty && !a.login.faculty.open {
 				a.cancelOutstanding()
 				return a, tea.Quit
 			}
@@ -419,9 +428,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.screen = screenLogin
 		a.login = newLoginModel()
 		if a.session != nil && a.session.Faculty != "" {
-			a.login.inputs[fieldFaculty].SetValue(a.session.Faculty)
+			a.login.faculty.input.SetValue(a.session.Faculty)
 			if a.session.Username != "" {
-				a.login.inputs[fieldUsername].SetValue(a.session.Username)
+				a.login.inputs[0].SetValue(a.session.Username)
 			}
 		}
 		return a, a.login.Init()
@@ -432,9 +441,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.screen = screenLogin
 			a.login = newLoginModel()
 			if a.session != nil && a.session.Faculty != "" {
-				a.login.inputs[fieldFaculty].SetValue(a.session.Faculty)
+				a.login.faculty.input.SetValue(a.session.Faculty)
 				if a.session.Username != "" {
-					a.login.inputs[fieldUsername].SetValue(a.session.Username)
+					a.login.inputs[0].SetValue(a.session.Username)
 				}
 			}
 			return a, a.login.Init()
@@ -532,13 +541,11 @@ func (a App) navSidebarView(height int) string {
 			return lipgloss.NewStyle().
 				Foreground(cAccent).
 				Bold(true).
-				Width(10).
-				Render("▶ " + label)
+				Render("▶" + label)
 		}
 		return lipgloss.NewStyle().
 			Foreground(cFgDim).
-			Width(10).
-			Render("  " + label)
+			Render(" " + label)
 	}
 
 	items := []string{
@@ -549,7 +556,7 @@ func (a App) navSidebarView(height int) string {
 
 	innerH := height - 4
 	for len(items) < innerH {
-		items = append(items, strings.Repeat(" ", 10))
+		items = append(items, "")
 	}
 
 	return lipgloss.NewStyle().

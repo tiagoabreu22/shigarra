@@ -26,14 +26,15 @@ const (
 type loginField int
 
 const (
-	fieldFaculty loginField = iota
-	fieldUsername
-	fieldPassword
+	fieldFaculty  loginField = iota
+	fieldUsername            // maps to inputs[0]
+	fieldPassword            // maps to inputs[1]
 	fieldCount
 )
 
 type loginModel struct {
-	inputs    [fieldCount]textinput.Model
+	faculty   facultyPicker
+	inputs    [2]textinput.Model // [0]=username, [1]=password
 	focused   loginField
 	spinner   spinner.Model
 	loading   bool
@@ -57,13 +58,6 @@ type loginErrMsg struct {
 }
 
 func newLoginModel() loginModel {
-	faculty := textinput.New()
-	faculty.Placeholder = "fcup"
-	faculty.SetValue("fcup")
-	faculty.Width = loginInputW
-	faculty.Focus()
-	faculty.CharLimit = 20
-
 	username := textinput.New()
 	username.Placeholder = "upXXXXXXX"
 	username.Width = loginInputW
@@ -80,11 +74,14 @@ func newLoginModel() loginModel {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(cAccent)
 
-	return loginModel{
-		inputs:  [fieldCount]textinput.Model{faculty, username, password},
+	m := loginModel{
+		faculty: FacultyPicker(""),
+		inputs:  [2]textinput.Model{username, password},
 		focused: fieldFaculty,
 		spinner: sp,
 	}
+	m.faculty = m.faculty.Focus()
+	return m
 }
 
 func (m *loginModel) Cancel() {
@@ -105,6 +102,18 @@ func (m loginModel) Update(msg tea.Msg) (loginModel, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.loading {
 			return m, nil
+		}
+		if m.focused == fieldFaculty {
+			var cmd tea.Cmd
+			var nav int
+			m.faculty, cmd, nav = m.faculty.handleKey(msg)
+			switch nav {
+			case 1:
+				m = m.nextField()
+			case -1:
+				m = m.prevField()
+			}
+			return m, cmd
 		}
 		switch msg.String() {
 		case "tab", "down":
@@ -147,9 +156,12 @@ func (m loginModel) Update(msg tea.Msg) (loginModel, tea.Cmd) {
 		}
 	}
 
+	// Pass all non-key messages through inputs for cursor blink etc.
 	var cmds []tea.Cmd
+	var cmd tea.Cmd
+	m.faculty.input, cmd = m.faculty.input.Update(msg)
+	cmds = append(cmds, cmd)
 	for i := range m.inputs {
-		var cmd tea.Cmd
 		m.inputs[i], cmd = m.inputs[i].Update(msg)
 		cmds = append(cmds, cmd)
 	}
@@ -157,27 +169,43 @@ func (m loginModel) Update(msg tea.Msg) (loginModel, tea.Cmd) {
 }
 
 func (m loginModel) nextField() loginModel {
-	m.inputs[m.focused].Blur()
+	if m.focused == fieldFaculty {
+		m.faculty = m.faculty.Blur()
+	} else {
+		m.inputs[m.focused-1].Blur()
+	}
 	m.focused = (m.focused + 1) % fieldCount
-	m.inputs[m.focused].Focus()
+	if m.focused == fieldFaculty {
+		m.faculty = m.faculty.Focus()
+	} else {
+		m.inputs[m.focused-1].Focus()
+	}
 	return m
 }
 
 func (m loginModel) prevField() loginModel {
-	m.inputs[m.focused].Blur()
+	if m.focused == fieldFaculty {
+		m.faculty = m.faculty.Blur()
+	} else {
+		m.inputs[m.focused-1].Blur()
+	}
 	if m.focused == 0 {
 		m.focused = fieldCount - 1
 	} else {
 		m.focused--
 	}
-	m.inputs[m.focused].Focus()
+	if m.focused == fieldFaculty {
+		m.faculty = m.faculty.Focus()
+	} else {
+		m.inputs[m.focused-1].Focus()
+	}
 	return m
 }
 
 func (m loginModel) submit() (loginModel, tea.Cmd) {
-	faculty := strings.TrimSpace(m.inputs[fieldFaculty].Value())
-	username := strings.TrimSpace(m.inputs[fieldUsername].Value())
-	password := m.inputs[fieldPassword].Value()
+	faculty := m.faculty.Value()
+	username := strings.TrimSpace(m.inputs[0].Value())
+	password := m.inputs[1].Value()
 
 	if faculty == "" || username == "" || password == "" {
 		m.errMsg = "All fields are required"
@@ -220,30 +248,39 @@ func doLogin(ctx context.Context, requestID int, faculty, username, password str
 }
 
 func (m loginModel) View() string {
-	// ── Inputs ────────────────────────────────────────────────────────────
-	labels := []string{"Faculty", "Username", "Password"}
 	labelStyle := lipgloss.NewStyle().Foreground(cFgDim).MarginBottom(0)
 
-	var fields strings.Builder
-	for i, input := range m.inputs {
-		fields.WriteString(labelStyle.Render(labels[i]) + "\n")
+	dropdownOpen := m.focused == fieldFaculty && m.faculty.open && len(m.faculty.matches) > 0
 
-		borderColor := cSurface
-		if loginField(i) == m.focused {
-			borderColor = cAccent
+	inputBox := func(inp textinput.Model, focused bool) string {
+		bc := cSurface
+		if focused {
+			bc = cAccent
 		}
-		box := lipgloss.NewStyle().
+		return lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderColor).
+			BorderForeground(bc).
 			Padding(0, 1).
 			Width(loginBoxW).
-			Render(input.View())
-
-		fields.WriteString(box + "\n")
-		if i < int(fieldCount)-1 {
-			fields.WriteString("\n")
-		}
+			Render(inp.View())
 	}
+
+	var fields strings.Builder
+
+	fields.WriteString(labelStyle.Render("Faculty") + "\n")
+	fields.WriteString(m.faculty.inputView(m.focused == fieldFaculty) + "\n")
+
+	if dropdownOpen {
+		fields.WriteString(m.faculty.dropdownView() + "\n")
+	} else {
+		fields.WriteString("\n")
+		fields.WriteString(labelStyle.Render("Username") + "\n")
+		fields.WriteString(inputBox(m.inputs[0], m.focused == fieldUsername) + "\n")
+	}
+
+	fields.WriteString("\n")
+	fields.WriteString(labelStyle.Render("Password") + "\n")
+	fields.WriteString(inputBox(m.inputs[1], m.focused == fieldPassword) + "\n")
 
 	// ── Status line ───────────────────────────────────────────────────────
 	var status string
