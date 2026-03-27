@@ -13,8 +13,11 @@ import (
 	"github.com/tiagoabreu22/shigarra/internal/ui"
 )
 
-// version is set at build time via -ldflags "-X main.version=<tag>".
-var version = "dev"
+// version and installMethod are set at build time via ldflags.
+var (
+	version       = "dev"
+	installMethod = "other"
+)
 
 func main() {
 	if len(os.Args) >= 2 {
@@ -32,7 +35,7 @@ func main() {
 			return
 		}
 	}
-	if err := ui.Run(); err != nil {
+	if err := ui.Run(version, installMethod); err != nil {
 		log.Fatal(err)
 	}
 }

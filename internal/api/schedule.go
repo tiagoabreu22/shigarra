@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -137,12 +136,7 @@ func FetchSchedule(ctx context.Context, client *Client, username string) ([]Lect
 	// extract data-evt-source-url from #cal-shadow-container.
 	evtURL, exists := doc.Find("#cal-shadow-container").Attr("data-evt-source-url")
 	if !exists {
-		dumpPath := "/tmp/unitui_schedule_debug.html"
-		_ = os.WriteFile(dumpPath, rawHTML, 0600)
-		return nil, fmt.Errorf(
-			"#cal-shadow-container[data-evt-source-url] not found\n  URL: %s\n  HTML dumped to: %s",
-			schedURL, dumpPath,
-		)
+		return nil, fmt.Errorf("#cal-shadow-container[data-evt-source-url] not found (URL: %s)", schedURL)
 	}
 
 	// make absolute if relative. Vergonha de dizer quantas horas perdi... 
