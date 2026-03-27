@@ -8,7 +8,7 @@ import (
 
 // Color palette — shared across all screens.
 const (
-	cBg       = lipgloss.Color("#000000")
+	cBg = lipgloss.Color("#000000")
 	cAccent   = lipgloss.Color("75")  // sky blue — primary accent
 	cFgBright = lipgloss.Color("255") // near-white
 	cFg       = lipgloss.Color("252") // main text
