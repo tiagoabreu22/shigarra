@@ -55,8 +55,6 @@ func UpdateCommand(installMethod string) string {
 	switch installMethod {
 	case "homebrew":
 		return "brew upgrade shigarra"
-	case "chocolatey":
-		return "choco upgrade shigarra"
 	default:
 		return "go install github.com/tiagoabreu22/shigarra@latest"
 	}
