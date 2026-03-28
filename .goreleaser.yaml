@@ -1,0 +1,71 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: default
+    main: .
+    binary: shigarra
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.installMethod=other
+
+  - id: homebrew
+    main: .
+    binary: shigarra
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.installMethod=homebrew
+
+
+archives:
+  - id: default
+    ids: [default]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+  - id: homebrew
+    ids: [homebrew]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_homebrew"
+
+
+checksum:
+  name_template: "checksums.txt"
+
+brews:
+  - ids: [homebrew]
+    repository:
+      owner: tiagoabreu22
+      name: homebrew-shigarra
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/tiagoabreu22/shigarra
+    description: Manage Sigarra from the confort of your terminal
+    license: MIT
+    install: |
+      bin.install "shigarra"
+    test: |
+      system "#{bin}/shigarra", "--version"
+
+
+release:
+  github:
+    owner: tiagoabreu22
+    name: shigarra

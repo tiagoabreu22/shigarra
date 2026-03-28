@@ -9,5 +9,7 @@ shigarra
 # macOS
 .DS_Store
 
+dist/
+
 # session (contains credentials)
 ~/.config/shigarra/
